@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Playlist</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #000; color: white; }
+        .spotify-gradient { background: linear-gradient(to bottom, #1db95433, #121212); }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <main class="flex-1 overflow-y-auto spotify-gradient p-4 pb-32 no-scrollbar">
+        <h1 class="text-3xl font-bold mt-8 mb-6">お気に入りの曲</h1>
+        <div id="playlistContainer" class="space-y-4">
+            </div>
+    </main>
+
+    <nav class="fixed bottom-0 left-0 w-full bg-black border-t border-gray-900 flex justify-around items-center h-16 z-50">
+        <a href="index.html" class="flex flex-col items-center gap-1 text-gray-400">
+            <i class="fas fa-home text-xl"></i><span class="text-[10px]">ホーム</span>
+        </a>
+        <a href="index.html" class="flex flex-col items-center gap-1 text-gray-400">
+            <i class="fas fa-search text-xl"></i><span class="text-[10px]">検索</span>
+        </a>
+        <a href="playlist.html" class="flex flex-col items-center gap-1 text-white">
+            <i class="fas fa-book text-xl"></i><span class="text-[10px]">ライブラリ</span>
+        </a>
+    </nav>
+
+    <script>
+        function loadPlaylist() {
+            const container = document.getElementById('playlistContainer');
+            const playlist = JSON.parse(localStorage.getItem('myPlaylist') || '[]');
+
+            if (playlist.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">まだ曲がありません。</p>';
+                return;
+            }
+
+            container.innerHTML = playlist.map(song => `
+                <div class="flex items-center gap-4 bg-[#181818]/50 p-2 rounded-lg">
+                    <img src="https://img.youtube.com/vi/${song.videoId}/mqdefault.jpg" class="w-12 h-12 rounded object-cover">
+                    <div class="flex-1 overflow-hidden">
+                        <div class="font-bold truncate text-sm">${song.title}</div>
+                        <div class="text-xs text-gray-400 truncate">${song.author}</div>
+                    </div>
+                    <button onclick="removeFromPlaylist('${song.videoId}')" class="text-gray-500 p-2">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        window.removeFromPlaylist = (videoId) => {
+            let playlist = JSON.parse(localStorage.getItem('myPlaylist') || '[]');
+            playlist = playlist.filter(s => s.videoId !== videoId);
+            localStorage.setItem('myPlaylist', JSON.stringify(playlist));
+            loadPlaylist();
+        };
+
+        loadPlaylist();
+    </script>
+</body>
+</html>
