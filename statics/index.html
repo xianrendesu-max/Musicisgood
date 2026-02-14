@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Music App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #000; color: white; -webkit-tap-highlight-color: transparent; }
+        .spotify-gradient { background: linear-gradient(to bottom, #1f1f1f, #121212); }
+        .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        input[type="range"] { accent-color: #1db954; }
+        .active-tab { color: white !important; }
+        /* スクロールバー非表示（iOS/Android用） */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <main id="content-area" class="flex-1 overflow-y-auto spotify-gradient no-scrollbar pb-40">
+        <header class="sticky top-0 z-30 bg-[#121212]/90 backdrop-blur-lg p-4">
+            <div class="relative w-full">
+                <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input type="text" id="searchInput" placeholder="曲名、アーティスト名で検索" 
+                       class="w-full bg-[#242424] rounded-full py-3 pl-12 pr-4 focus:outline-none text-base border-none">
+            </div>
+        </header>
+
+        <section class="p-4">
+            <h2 id="viewTitle" class="text-2xl font-bold mb-4">注目の楽曲</h2>
+            <div id="resultsGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                </div>
+        </section>
+    </main>
+
+    <footer id="player-bar" class="fixed bottom-[64px] left-0 w-full bg-[#181818] border-t border-gray-800 p-2 flex items-center justify-between z-40 transition-transform translate-y-full">
+        <div class="flex items-center gap-3 w-2/3">
+            <img id="currentThumb" src="" class="w-12 h-12 rounded shadow-md object-cover">
+            <div class="overflow-hidden">
+                <div id="currentTitle" class="text-sm font-bold truncate">曲名</div>
+                <div id="currentArtist" class="text-xs text-gray-400 truncate">アーティスト</div>
+            </div>
+        </div>
+        <div class="flex items-center gap-4 pr-2">
+            <button id="favoriteBtn" class="text-xl text-gray-400"><i class="far fa-heart"></i></button>
+            <button id="playBtn" class="text-3xl text-white"><i id="playIcon" class="fas fa-play-circle"></i></button>
+        </div>
+        <div class="absolute top-0 left-0 w-full h-[2px] bg-gray-700">
+            <div id="progressLine" class="h-full bg-white w-0"></div>
+        </div>
+    </footer>
+
+    <nav class="fixed bottom-0 left-0 w-full bg-black/95 border-t border-gray-900 flex justify-around items-center h-16 z-50 safe-area-bottom">
+        <a href="index.html" class="flex flex-col items-center gap-1 text-gray-400 active-tab">
+            <i class="fas fa-home text-xl"></i><span class="text-[10px]">ホーム</span>
+        </a>
+        <button onclick="document.getElementById('searchInput').focus()" class="flex flex-col items-center gap-1 text-gray-400">
+            <i class="fas fa-search text-xl"></i><span class="text-[10px]">検索</span>
+        </button>
+        <a href="playlist.html" class="flex flex-col items-center gap-1 text-gray-400">
+            <i class="fas fa-book text-xl"></i><span class="text-[10px]">ライブラリ</span>
+        </a>
+    </nav>
+
+    <audio id="audioPlayer"></audio>
+
+    <script>
+        const audio = document.getElementById('audioPlayer');
+        const playBtn = document.getElementById('playBtn');
+        const playIcon = document.getElementById('playIcon');
+        const searchInput = document.getElementById('searchInput');
+        const resultsGrid = document.getElementById('resultsGrid');
+        const playerBar = document.getElementById('player-bar');
+        const progressLine = document.getElementById('progressLine');
+        const favoriteBtn = document.getElementById('favoriteBtn');
+
+        let currentTrack = null;
+
+        // 検索ロジック
+        searchInput.addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter') {
+                const query = searchInput.value;
+                if (!query) return;
+                resultsGrid.innerHTML = '<div class="col-span-2 text-center py-10 text-gray-500">検索中...</div>';
+                try {
+                    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+                    renderResults(data.results);
+                } catch (err) { console.error(err); }
+            }
+        });
+
+        function renderResults(songs) {
+            resultsGrid.innerHTML = '';
+            songs.forEach(song => {
+                const div = document.createElement('div');
+                div.className = 'bg-[#181818] p-3 rounded-md active:scale-95 transition-transform';
+                div.innerHTML = `
+                    <img src="https://img.youtube.com/vi/${song.videoId}/mqdefault.jpg" class="w-full aspect-square object-cover rounded mb-2">
+                    <div class="text-sm font-bold truncate">${song.title}</div>
+                    <div class="text-xs text-gray-400 truncate">${song.author}</div>
+                `;
+                div.onclick = () => playSong(song);
+                resultsGrid.appendChild(div);
+            });
+        }
+
+        function playSong(song) {
+            currentTrack = song;
+            playerBar.classList.remove('translate-y-full');
+            document.getElementById('currentTitle').innerText = song.title;
+            document.getElementById('currentArtist').innerText = song.author;
+            document.getElementById('currentThumb').src = `https://img.youtube.com/vi/${song.videoId}/mqdefault.jpg`;
+            
+            audio.src = `/api/streamurl?video_id=${song.videoId}`;
+            audio.play();
+            updatePlayIcon(true);
+            updateFavoriteIcon(song.videoId);
+
+            // MediaSession API (バックグラウンド再生・通知制御)
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: song.title,
+                    artist: song.author,
+                    artwork: [{ src: `https://img.youtube.com/vi/${song.videoId}/mqdefault.jpg`, sizes: '512x512', type: 'image/jpeg' }]
+                });
+            }
+        }
+
+        function updatePlayIcon(isPlaying) {
+            playIcon.className = isPlaying ? 'fas fa-pause-circle' : 'fas fa-play-circle';
+        }
+
+        playBtn.onclick = () => {
+            if (audio.paused) { audio.play(); updatePlayIcon(true); }
+            else { audio.pause(); updatePlayIcon(false); }
+        };
+
+        audio.ontimeupdate = () => {
+            const pct = (audio.currentTime / audio.duration) * 100;
+            progressLine.style.width = `${pct}%`;
+        };
+
+        // ローカルストレージへの保存（お気に入り機能）
+        favoriteBtn.onclick = () => {
+            if (!currentTrack) return;
+            let playlist = JSON.parse(localStorage.getItem('myPlaylist') || '[]');
+            const index = playlist.findIndex(s => s.videoId === currentTrack.videoId);
+            
+            if (index === -1) {
+                playlist.push(currentTrack);
+                localStorage.setItem('myPlaylist', JSON.stringify(playlist));
+            } else {
+                playlist.splice(index, 1);
+                localStorage.setItem('myPlaylist', JSON.stringify(playlist));
+            }
+            updateFavoriteIcon(currentTrack.videoId);
+        };
+
+        function updateFavoriteIcon(videoId) {
+            let playlist = JSON.parse(localStorage.getItem('myPlaylist') || '[]');
+            const exists = playlist.some(s => s.videoId === videoId);
+            favoriteBtn.innerHTML = exists ? '<i class="fas fa-heart text-green-500"></i>' : '<i class="far fa-heart"></i>';
+        }
+    </script>
+</body>
+</html>
