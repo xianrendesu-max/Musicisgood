@@ -12,7 +12,6 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
-        /* 取得中アラートアニメーション */
         @keyframes fadeInOut {
             0% { opacity: 0; transform: translateY(20px); }
             15% { opacity: 1; transform: translateY(0); }
@@ -32,7 +31,6 @@
             animation: fadeInOut 2s ease-in-out forwards;
         }
 
-        /* 全画面プレイヤーアニメーション */
         #music-player-ui {
             transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
             transform: translateY(100%);
@@ -54,7 +52,7 @@
 
     <div id="loadingAlert" class="loading-alert items-center gap-3 flex">
         <div class="loading-spinner"></div>
-        <span class="font-bold">音声を取得中...</span>
+        <span id="alertText" class="font-bold">取得中...</span>
     </div>
 
     <main id="main-view" class="flex-1 overflow-y-auto spotify-gradient no-scrollbar pb-40">
@@ -68,8 +66,7 @@
 
         <section id="content-section" class="p-4">
             <h2 id="viewTitle" class="text-2xl font-bold mb-4">注目の楽曲</h2>
-            <div id="resultsGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                </div>
+            <div id="resultsGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4"></div>
         </section>
     </main>
 
@@ -114,13 +111,15 @@
                     <i id="fullPlayIcon" class="fas fa-play ml-1"></i>
                 </button>
                 <button class="text-3xl"><i class="fas fa-step-forward"></i></button>
-                <button class="text-2xl"><i class="fas fa-redo text-gray-400"></i></button>
+                <button id="downloadBtn" class="text-2xl text-gray-400">
+                    <i class="fas fa-download"></i>
+                </button>
             </div>
         </div>
     </div>
 
     <nav class="fixed bottom-0 left-0 w-full bg-black/95 border-t border-gray-900 flex justify-around items-center h-16 z-50">
-        <button onclick="showHome()" class="flex flex-col items-center gap-1 text-gray-400 nav-item active-tab" id="nav-home">
+        <button onclick="showHome()" class="flex flex-col items-center gap-1 text-gray-400 nav-item" id="nav-home">
             <i class="fas fa-home text-xl"></i><span class="text-[10px]">ホーム</span>
         </button>
         <button onclick="document.getElementById('searchInput').focus()" class="flex flex-col items-center gap-1 text-gray-400 nav-item">
@@ -145,12 +144,13 @@
         const progressLine = document.getElementById('progressLine');
         const fullSeekBar = document.getElementById('fullSeekBar');
         const loadingAlert = document.getElementById('loadingAlert');
+        const alertText = document.getElementById('alertText');
         const fullPlayer = document.getElementById('music-player-ui');
+        const downloadBtn = document.getElementById('downloadBtn');
 
         let currentTrack = null;
         let isLoading = false;
 
-        // 検索
         searchInput.addEventListener('keypress', async (e) => {
             if (e.key === 'Enter') {
                 const query = searchInput.value;
@@ -183,54 +183,32 @@
         async function playSong(song) {
             currentTrack = song;
             isLoading = true;
-            
-            // アラート表示
+            alertText.innerText = "音声を取得中...";
             loadingAlert.style.display = 'flex';
             setTimeout(() => { loadingAlert.style.display = 'none'; }, 2000);
 
-            // UI更新
             playerBar.classList.remove('translate-y-full');
             document.getElementById('currentTitle').innerText = song.title;
             document.getElementById('currentArtist').innerText = song.author;
             document.getElementById('currentThumb').src = `https://img.youtube.com/vi/${song.videoId}/mqdefault.jpg`;
-            
-            // 全画面UI用
             document.getElementById('fullTitle').innerText = song.title;
             document.getElementById('fullArtist').innerText = song.author;
             document.getElementById('fullThumb').src = `https://img.youtube.com/vi/${song.videoId}/mqdefault.jpg`;
 
             audio.src = `/api/streamurl?video_id=${song.videoId}`;
-            
             try {
                 await audio.play();
                 isLoading = false;
                 updatePlayIcon(true);
-            } catch (e) {
-                console.log("Play interrupted or failed");
-            }
-
-            if ('mediaSession' in navigator) {
-                navigator.mediaSession.metadata = new MediaMetadata({
-                    title: song.title,
-                    artist: song.author,
-                    artwork: [{ src: `https://img.youtube.com/vi/${song.videoId}/mqdefault.jpg`, sizes: '512x512', type: 'image/jpeg' }]
-                });
-            }
+            } catch (e) { console.log("Play failed"); }
         }
 
         function updatePlayIcon(isPlaying) {
-            const iconClass = isPlaying ? 'fas fa-pause-circle' : 'fas fa-play-circle';
-            const fullIconClass = isPlaying ? 'fas fa-pause' : 'fas fa-play ml-1';
-            playIcon.className = iconClass;
-            fullPlayIcon.className = fullIconClass;
+            playIcon.className = isPlaying ? 'fas fa-pause-circle' : 'fas fa-play-circle';
+            fullPlayIcon.className = isPlaying ? 'fas fa-pause' : 'fas fa-play ml-1';
         }
 
         function togglePlay() {
-            if (isLoading) {
-                loadingAlert.style.display = 'flex';
-                setTimeout(() => { loadingAlert.style.display = 'none'; }, 1500);
-                return;
-            }
             if (audio.paused) { audio.play(); updatePlayIcon(true); }
             else { audio.pause(); updatePlayIcon(false); }
         }
@@ -247,9 +225,7 @@
             document.getElementById('totalTime').innerText = formatTime(audio.duration);
         };
 
-        fullSeekBar.oninput = () => {
-            audio.currentTime = (fullSeekBar.value / 100) * audio.duration;
-        };
+        fullSeekBar.oninput = () => { audio.currentTime = (fullSeekBar.value / 100) * audio.duration; };
 
         function formatTime(sec) {
             const m = Math.floor(sec / 60);
@@ -257,39 +233,31 @@
             return `${m}:${s < 10 ? '0' : ''}${s}`;
         }
 
-        // SPA画面切り替え
-        function showHome() {
-            document.getElementById('viewTitle').innerText = "注目の楽曲";
-            setActiveTab('nav-home');
-            // ホーム用のデータを再読み込みするなどの処理
-        }
+        downloadBtn.onclick = () => {
+            if (!currentTrack) return;
+            alertText.innerText = "保存中...";
+            loadingAlert.style.display = 'flex';
+            
+            const url = `/api/download?video_id=${currentTrack.videoId}&title=${encodeURIComponent(currentTrack.title)}`;
+            const a = document.createElement('a');
+            a.href = url;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
 
+            setTimeout(() => { loadingAlert.style.display = 'none'; }, 3000);
+        };
+
+        function openFullPlayer() { fullPlayer.classList.add('active'); }
+        function closeFullPlayer() { fullPlayer.classList.remove('active'); }
+
+        function showHome() { document.getElementById('viewTitle').innerText = "注目の楽曲"; }
         function showLibrary() {
             document.getElementById('viewTitle').innerText = "ライブラリ";
-            setActiveTab('nav-lib');
-            const playlist = JSON.parse(localStorage.getItem('myPlaylist') || '[]');
+            let playlist = JSON.parse(localStorage.getItem('myPlaylist') || '[]');
             renderResults(playlist);
-            if(playlist.length === 0) {
-                resultsGrid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-20">お気に入りの曲がありません</p>';
-            }
         }
 
-        function setActiveTab(id) {
-            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active-tab'));
-            document.getElementById(id).classList.add('active-tab');
-        }
-
-        function openFullPlayer() {
-            fullPlayer.classList.add('active');
-            document.getElementById('fullThumb').classList.add('scale-105');
-        }
-
-        function closeFullPlayer() {
-            fullPlayer.classList.remove('active');
-            document.getElementById('fullThumb').classList.remove('scale-105');
-        }
-
-        // お気に入り
         document.getElementById('favoriteBtn').onclick = (e) => {
             e.stopPropagation();
             if (!currentTrack) return;
@@ -306,4 +274,4 @@
         };
     </script>
 </body>
-    </html>
+</html>
