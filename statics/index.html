@@ -140,7 +140,7 @@
         </button>
     </nav>
 
-    <audio id="audioPlayer" crossorigin="anonymous" playsinline></audio>
+    <audio id="audioPlayer" playsinline></audio>
 
     <script>
         const audio = document.getElementById('audioPlayer');
@@ -200,41 +200,33 @@
             });
         }
 
-        // ============================================
-        // 再生ロジック (ここを修正)
-        // ============================================
         async function playSong(song) {
             currentTrack = song;
             isLoading = true;
             
-            // 1. アラートを常時表示状態にする（setTimeout削除）
             loadingAlert.classList.add('active');
 
-            // UIの更新
             playerBar.classList.remove('translate-y-full');
             updateMeta(song);
             updateFavoriteIcon(song.videoId);
 
-            // 音声セット
-            audio.src = `/api/streamurl?video_id=${song.videoId}`;
+            // crossoriginによるCORS制限を避けるため属性をリセットし、キャッシュ回避用のクエリを付加
+            audio.removeAttribute('crossorigin');
+            audio.src = `/api/streamurl?video_id=${song.videoId}&t=${Date.now()}`;
+            audio.load();
             
             try {
-                // 2. 音声の読み込みと再生開始を待つ
                 await audio.play();
-                
-                // 3. 再生が成功したらアラートを消す
                 isLoading = false;
                 loadingAlert.classList.remove('active');
                 updatePlayIcon(true);
             } catch (e) {
                 console.error("Play failed", e);
-                // エラー時もアラートを消す（必要ならエラーメッセージを出す）
                 isLoading = false;
                 loadingAlert.classList.remove('active');
                 alert("再生できませんでした。別の曲をお試しください。");
             }
 
-            // バックグラウンド再生設定
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: song.title,
@@ -266,10 +258,7 @@
         }
 
         function togglePlay() {
-            if (isLoading) {
-                // 読み込み中は操作させない、またはアラートを再強調
-                return;
-            }
+            if (isLoading) return;
             if (audio.paused) { audio.play(); updatePlayIcon(true); }
             else { audio.pause(); updatePlayIcon(false); }
         }
@@ -277,7 +266,6 @@
         playBtn.onclick = (e) => { e.stopPropagation(); togglePlay(); };
         fullPlayBtn.onclick = togglePlay;
 
-        // シーク機能
         audio.ontimeupdate = () => {
             if (!audio.duration) return;
             const pct = (audio.currentTime / audio.duration) * 100;
@@ -302,7 +290,6 @@
             return `${m}:${s < 10 ? '0' : ''}${s}`;
         }
 
-        // SPA画面制御
         function showHome() {
             document.getElementById('viewTitle').innerText = "注目の楽曲";
             setActiveTab('nav-home');
@@ -330,7 +317,6 @@
             document.getElementById('fullThumb').classList.remove('scale-105');
         }
 
-        // お気に入り機能
         document.getElementById('favoriteBtn').onclick = (e) => {
             e.stopPropagation();
             if (!currentTrack) return;
@@ -345,7 +331,6 @@
             localStorage.setItem('myPlaylist', JSON.stringify(playlist));
             updateFavoriteIcon(currentTrack.videoId);
             
-            // ライブラリ画面なら再描画
             if(document.getElementById('nav-lib').classList.contains('active-tab')){
                 showLibrary();
             }
