@@ -50,8 +50,8 @@ VIDEO_APIS = list(dict.fromkeys([
 
 SEARCH_APIS = VIDEO_APIS.copy()
 
-STREAM_YTDL_API_BASE_URL = "https://yudlp.vercel.app/stream/"
-HLS_API_BASE_URL = "https://yudlp.vercel.app/m3u8/"
+STREAM_YTDL_API_BASE_URL = "https://ytdlpinstance-vercel.vercel.app/stream/"
+HLS_API_BASE_URL = "https://ytdlpinstance-vercel.vercel.app/m3u8/"
 
 TIMEOUT = 5
 
@@ -72,12 +72,19 @@ def update_score(base, success, elapsed):
         api_scores[base] -= 2
 
 # ===============================
-# Async Client
+# Async Client（通信量最適化）
 # ===============================
 client = httpx.AsyncClient(
     timeout=TIMEOUT,
-    headers={"User-Agent": "Mozilla/5.0"},
-    limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
+    headers={
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Encoding": "gzip, br"
+    },
+    limits=httpx.Limits(
+        max_keepalive_connections=10,
+        max_connections=20
+    ),
+    http2=True  # HTTP/2でヘッダ圧縮
 )
 
 async def try_json(url, params=None):
@@ -90,7 +97,7 @@ async def try_json(url, params=None):
     return None
 
 # ===============================
-# Music Search
+# Music Search（fields最適化）
 # ===============================
 @app.get("/api/search")
 async def api_search(q: str):
@@ -98,28 +105,32 @@ async def api_search(q: str):
 
     async def fetch(base):
         start = time.time()
+
         data = await try_json(
             f"{base}/api/v1/search",
-            {"q": music_query, "type": "video"}
+            {
+                "q": music_query,
+                "type": "video",
+                "fields": "videoId,title,author,lengthSeconds"
+            }
         )
+
         elapsed = time.time() - start
 
         if not isinstance(data, list):
             update_score(base, False, elapsed)
             return None
 
-        results = []
-        for v in data:
-            vid = v.get("videoId")
-            if not vid:
-                continue
-            results.append({
-                "videoId": vid,
+        results = [
+            {
+                "videoId": v["videoId"],
                 "title": v.get("title"),
                 "author": v.get("author"),
                 "lengthSeconds": v.get("lengthSeconds") or 0,
-                "thumbnail": f"https://img.youtube.com/vi/{vid}/mqdefault.jpg"
-            })
+                "thumbnail": f"https://img.youtube.com/vi/{v['videoId']}/mqdefault.jpg"
+            }
+            for v in data if v.get("videoId")
+        ]
 
         if results:
             update_score(base, True, elapsed)
@@ -138,12 +149,12 @@ async def api_search(q: str):
     raise HTTPException(status_code=503, detail="Search unavailable")
 
 # ===============================
-# Stream URL
+# Stream URL（fields最適化）
 # ===============================
 @app.get("/api/streamurl")
 async def api_streamurl(video_id: str):
 
-    # 1. HLS優先
+    # 1. HLS
     data = await try_json(f"{HLS_API_BASE_URL}{video_id}")
     if data:
         m3u8s = [f for f in data.get("m3u8_formats", []) if f.get("url")]
@@ -154,10 +165,17 @@ async def api_streamurl(video_id: str):
             )
             return RedirectResponse(best["url"])
 
-    # 2. Invidious 並列
+    # 2. Invidious（必要項目のみ取得）
     async def fetch_video(base):
         start = time.time()
-        data = await try_json(f"{base}/api/v1/videos/{video_id}")
+
+        data = await try_json(
+            f"{base}/api/v1/videos/{video_id}",
+            {
+                "fields": "adaptiveFormats,formatStreams"
+            }
+        )
+
         elapsed = time.time() - start
 
         if not data:
@@ -168,6 +186,7 @@ async def api_streamurl(video_id: str):
             f for f in data.get("adaptiveFormats", [])
             if "audio/" in f.get("type", "")
         ]
+
         if audio_streams:
             best_audio = max(audio_streams, key=lambda x: x.get("bitrate", 0))
             update_score(base, True, elapsed)
