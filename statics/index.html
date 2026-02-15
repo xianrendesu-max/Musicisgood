@@ -12,14 +12,13 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
-        /* アラートのアニメーション修正：表示し続けるように変更 */
         @keyframes fadeIn {
             0% { opacity: 0; transform: translate(-50%, 20px); }
             100% { opacity: 1; transform: translate(-50%, 0); }
         }
         
         .loading-alert {
-            display: none; /* デフォルトは非表示 */
+            display: none;
             position: fixed;
             top: 20%;
             left: 50%;
@@ -31,13 +30,11 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
 
-        /* JavaScriptでこのクラスを付け外しする */
         .loading-alert.active {
             display: flex;
             animation: fadeIn 0.3s ease-out forwards;
         }
 
-        /* 全画面プレイヤーアニメーション */
         #music-player-ui {
             transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
             transform: translateY(100%);
@@ -158,8 +155,8 @@
 
         let currentTrack = null;
         let isLoading = false;
+        let retryCount = 0;
 
-        // 検索ロジック
         searchInput.addEventListener('keypress', async (e) => {
             if (e.key === 'Enter') {
                 const query = searchInput.value;
@@ -195,7 +192,7 @@
                     <div class="text-sm font-bold truncate text-white">${song.title}</div>
                     <div class="text-xs text-gray-400 truncate">${song.author}</div>
                 `;
-                div.onclick = () => playSong(song);
+                div.onclick = () => { retryCount = 0; playSong(song); };
                 resultsGrid.appendChild(div);
             });
         }
@@ -203,16 +200,13 @@
         async function playSong(song) {
             currentTrack = song;
             isLoading = true;
-            
             loadingAlert.classList.add('active');
 
             playerBar.classList.remove('translate-y-full');
             updateMeta(song);
             updateFavoriteIcon(song.videoId);
 
-            // crossoriginによるCORS制限を避けるため属性をリセットし、キャッシュ回避用のクエリを付加
-            audio.removeAttribute('crossorigin');
-            audio.src = `/api/streamurl?video_id=${song.videoId}&t=${Date.now()}`;
+            audio.src = `/api/streamurl?video_id=${song.videoId}&retry=${retryCount}`;
             audio.load();
             
             try {
@@ -221,10 +215,17 @@
                 loadingAlert.classList.remove('active');
                 updatePlayIcon(true);
             } catch (e) {
-                console.error("Play failed", e);
-                isLoading = false;
-                loadingAlert.classList.remove('active');
-                alert("再生できませんでした。別の曲をお試しください。");
+                console.error("Play error", e);
+                // 最大3回まで自動リトライ
+                if (retryCount < 3) {
+                    retryCount++;
+                    console.log(`再試行中... (${retryCount})`);
+                    playSong(song);
+                } else {
+                    isLoading = false;
+                    loadingAlert.classList.remove('active');
+                    alert("この曲は現在再生できません。別の曲をお試しください。");
+                }
             }
 
             if ('mediaSession' in navigator) {
@@ -244,7 +245,6 @@
             document.getElementById('currentTitle').innerText = song.title;
             document.getElementById('currentArtist').innerText = song.author;
             document.getElementById('currentThumb').src = song.thumbnail;
-            
             document.getElementById('fullTitle').innerText = song.title;
             document.getElementById('fullArtist').innerText = song.author;
             document.getElementById('fullThumb').src = song.thumbnail;
@@ -279,9 +279,7 @@
             if(audio.duration) audio.currentTime = (fullSeekBar.value / 100) * audio.duration;
         };
 
-        function skipTime(sec) {
-            audio.currentTime += sec;
-        }
+        function skipTime(sec) { audio.currentTime += sec; }
 
         function formatTime(sec) {
             if(isNaN(sec)) return "0:00";
@@ -322,18 +320,11 @@
             if (!currentTrack) return;
             let playlist = JSON.parse(localStorage.getItem('myPlaylist') || '[]');
             const idx = playlist.findIndex(s => s.videoId === currentTrack.videoId);
-            
-            if (idx === -1) {
-                playlist.push(currentTrack);
-            } else {
-                playlist.splice(idx, 1);
-            }
+            if (idx === -1) { playlist.push(currentTrack); } 
+            else { playlist.splice(idx, 1); }
             localStorage.setItem('myPlaylist', JSON.stringify(playlist));
             updateFavoriteIcon(currentTrack.videoId);
-            
-            if(document.getElementById('nav-lib').classList.contains('active-tab')){
-                showLibrary();
-            }
+            if(document.getElementById('nav-lib').classList.contains('active-tab')){ showLibrary(); }
         };
 
         function updateFavoriteIcon(videoId) {
