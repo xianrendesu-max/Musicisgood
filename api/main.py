@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse 
 import requests
 import random
 import os
@@ -153,3 +154,54 @@ def api_streamurl(video_id: str):
                 return RedirectResponse(f["url"])
 
     raise HTTPException(status_code=503, detail="Stream unavailable")
+
+from fastapi.responses import StreamingResponse
+
+# ===============================
+# Download API (音声ファイルとして取得)
+# ===============================
+@app.get("/api/download")
+def api_download(video_id: str, title: str = "track"):
+    """
+    ストリームURLを取得し、サーバー側で中継(Proxy)して
+    ブラウザに「ファイル」としてダウンロードさせます。
+    """
+    # 1. まず再生用と同じロジックでストリームURLを取得
+    # (既存の api_streamurl のロジックを流用するか、直接リダイレクト先を取得)
+    # ここでは簡易的に、この関数内でストリームURLを特定します。
+    
+    stream_url = None
+    
+    # 既存のロジックでURLを探す (簡略化版)
+    # 本来は api_streamurl の中身を共通関数化するのが綺麗です
+    try:
+        # HLSやInvidiousからURLを取得する処理（中身は api_streamurl と同様）
+        # ... (中略) ... 
+        # ここでは例として外部プロキシから取得を試みる例
+        data = try_json(f"{STREAM_YTDL_API_BASE_URL}{video_id}")
+        if data:
+            for f in data.get("formats", []):
+                if f.get("itag") in ["140", "18"] and f.get("url"):
+                    stream_url = f["url"]
+                    break
+    except:
+        pass
+
+    if not stream_url:
+        raise HTTPException(status_code=503, detail="Download source not found")
+
+    # 2. ストリームをサーバー側でストリーミング中継する
+    def iterfile():
+        with requests.get(stream_url, stream=True) as r:
+            for chunk in r.iter_content(chunk_size=1024*1024):
+                if chunk:
+                    yield chunk
+
+    # 3. レスポンスヘッダーにファイル名を指定して返す
+    # 拡張子はとりあえず .mp3 または .m4a
+    safe_title = "".join([c for c in title if c.isalnum() or c in "._- "]).strip()
+    headers = {
+        'Content-Disposition': f'attachment; filename="{safe_title}.mp3"'
+    }
+    
+    return StreamingResponse(iterfile(), media_type="audio/mpeg", headers=headers)
