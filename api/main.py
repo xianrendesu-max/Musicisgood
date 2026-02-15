@@ -36,14 +36,12 @@ def playlist_page():
 # ===============================
 # API Base Lists
 # ===============================
-# 稼働率の高いインスタンスに厳選
 VIDEO_APIS = [
-    "https://inv.tux.pizza",
-    "https://invidious.flokinet.to",
-    "https://invidious.io.lol",
-    "https://iv.melmac.space",
-    "https://invidious.perennialte.ch",
-    "https://yt.artemislena.eu"
+    "https://iv.melmac.space", "https://pol1.iv.ggtyler.dev",
+    "https://cal1.iv.ggtyler.dev", "https://invidious.0011.lt",
+    "https://yt.omada.cafe", "https://invidious.exma.de/",
+    "https://invidious.f5.si/", "https://siawaseok-wakame-server2.glitch.me/",
+    "https://lekker.gay/", "https://id.420129.xyz/"
 ]
 
 SEARCH_APIS = VIDEO_APIS.copy()
@@ -55,9 +53,8 @@ SEARCH_APIS = list(dict.fromkeys(SEARCH_APIS))
 STREAM_YTDL_API_BASE_URL = "https://yudlp.vercel.app/stream/"
 HLS_API_BASE_URL = "https://yudlp.vercel.app/m3u8/"
 
-# 各リクエストのタイムアウトを短くして、Vercel全体の10秒制限を超えないようにする
-TIMEOUT = 3 
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
+TIMEOUT = 6
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # ===============================
 # Utils
@@ -79,6 +76,7 @@ def api_search(q: str):
     results = []
     random.shuffle(SEARCH_APIS)
     
+    # 音楽のみをヒットさせるための調整（topicやaudioを付加）
     music_query = f"{q} topic audio"
 
     for base in SEARCH_APIS:
@@ -111,47 +109,47 @@ def api_search(q: str):
 # ===============================
 @app.get("/api/streamurl")
 def api_streamurl(video_id: str):
-    # 1. Invidious Adaptive Formats (音声のみ) を最優先（これが一番確実）
-    random.shuffle(VIDEO_APIS)
-    for base in VIDEO_APIS:
-        try:
-            res = requests.get(f"{base}/api/v1/videos/{video_id}", headers=HEADERS, timeout=TIMEOUT)
-            if res.status_code != 200:
-                continue
-            data = res.json()
-
-            audio_streams = [
-                f for f in data.get("adaptiveFormats", [])
-                if "audio/" in f.get("type", "")
-            ]
-            
-            if audio_streams:
-                # ビットレート 128k (m4a) 周辺を狙う
-                best_audio = sorted(audio_streams, key=lambda x: x.get("bitrate", 0), reverse=True)[0]
-                stream_url = best_audio["url"]
-                # 相対パスの場合はベースURLを付加
-                if stream_url.startswith("/"):
-                    stream_url = base + stream_url
-                return RedirectResponse(stream_url)
-
-        except:
-            continue
-
-    # 2. HLS (m3u8) 試行
+    # 1. HLS (m3u8) を優先試行（ストリーミングが安定するため）
     try:
         data = try_json(f"{HLS_API_BASE_URL}{video_id}")
-        if data and "m3u8_formats" in data:
+        if data:
             m3u8s = [f for f in data.get("m3u8_formats", []) if f.get("url")]
             if m3u8s:
+                # 解像度が高い（＝音質が良い可能性が高い）ものをソート
                 best = sorted(m3u8s, key=lambda f: int((f.get("resolution") or "0x0").split("x")[-1]), reverse=True)[0]
                 return RedirectResponse(best["url"])
     except:
         pass
 
-    # 3. 外部プロキシ
-    try:
-        return RedirectResponse(f"{STREAM_YTDL_API_BASE_URL}{video_id}")
-    except:
-        pass
+    # 2. Invidious Adaptive Formats (音声のみ) を試行
+    random.shuffle(VIDEO_APIS)
+    for base in VIDEO_APIS:
+        data = try_json(f"{base}/api/v1/videos/{video_id}")
+        if not data:
+            continue
+
+        # 音声のみ(audio/)のストリームを抽出
+        audio_streams = [
+            f for f in data.get("adaptiveFormats", [])
+            if "audio/" in f.get("type", "")
+        ]
+        
+        if audio_streams:
+            # 最もビットレートが高いものを選択
+            best_audio = sorted(audio_streams, key=lambda x: x.get("bitrate", 0), reverse=True)[0]
+            return RedirectResponse(best_audio["url"])
+
+        # 3. 通常のビデオストリーム（音を含む）を試行
+        for f in data.get("formatStreams", []):
+            if f.get("url"):
+                return RedirectResponse(f["url"])
+
+    # 4. 外部の変換プロキシを最終手段として使用
+    data = try_json(f"{STREAM_YTDL_API_BASE_URL}{video_id}")
+    if data:
+        # itag 140 (m4a音声) または 18 (360p mp4) を探す
+        for f in data.get("formats", []):
+            if f.get("itag") in ["140", "18"] and f.get("url"):
+                return RedirectResponse(f["url"])
 
     raise HTTPException(status_code=503, detail="Stream unavailable")
